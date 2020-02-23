@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
@@ -78,12 +79,12 @@ void show_device_information(cl_device_id device)
 }
 
 
-int load_opencl_program_code_file(const char* code_file_path, char *source_str)
+int load_opencl_kernel_code_file(const char* kernel_code_path, char *source_str)
 {
     FILE *fp;
     size_t source_size;
 
-    fp = fopen(code_file_path, "r");
+    fp = fopen(kernel_code_path, "r");
     if (!fp) {
         fprintf(stderr, "Failed to load kernel.\n");
         exit(1);
@@ -95,10 +96,41 @@ int load_opencl_program_code_file(const char* code_file_path, char *source_str)
     return source_size;
 }
 
-int main(int argc, char** argv)
+int GetGetPlatforms(cl_platform_id **platforms)
 {
     cl_int errNum;
     cl_uint total_platforms;
+    char* ext_data;
+    size_t ext_size;
+
+    errNum = clGetPlatformIDs(0, NULL, &total_platforms);
+    checkErr((errNum != CL_SUCCESS)? errNum : (total_platforms <= 0 ? -1 : CL_SUCCESS), "clGetPlatformIDs for init.");
+    printf("get number of Platforms: %d\n", total_platforms);
+
+    *platforms = (cl_platform_id*) malloc(sizeof(cl_platform_id) * total_platforms);
+    errNum = clGetPlatformIDs(total_platforms, *platforms, NULL);
+    checkErr((errNum != CL_SUCCESS)? errNum : (total_platforms <= 0 ? -1 : CL_SUCCESS), "clGetPlatFormIDs for get data.");
+    
+    int platformId = -1;
+    for (platformId = 0; platformId < total_platforms; platformId++)
+    {
+        errNum = clGetPlatformInfo(*platforms[platformId], CL_PLATFORM_EXTENSIONS, 0, NULL, &ext_size);
+        checkErr(errNum, "clGetPlatformInfo for init.");
+
+        ext_data = (char*)malloc(ext_size);
+        errNum = clGetPlatformInfo(*platforms[platformId], CL_PLATFORM_EXTENSIONS, ext_size, ext_data, NULL);
+        checkErr(errNum, "clGetPlatformInfo for get data.");
+        printf("Platform ID: %d\nsupports extensions: \n %s\n", platformId, ext_data); 
+    }
+
+    free(ext_data);
+    return total_platforms;
+}
+
+
+int main(int argc, char** argv)
+{
+    cl_int errNum;
     cl_uint total_devices;
     cl_platform_id* platforms = NULL;
     cl_context context =NULL;
@@ -108,56 +140,44 @@ int main(int argc, char** argv)
     cl_mem inputSignalBuffer;
     cl_mem outputSignalBuffer;
     cl_mem maskBuffer;
-    char* ext_data;
-    size_t ext_size;
     cl_device_id* devices = NULL;
     char* source_str = NULL;
+    clock_t start_time, end_time;
+    float total_time = 0;
 
-    errNum = clGetPlatformIDs(0, NULL, &total_platforms);
-    checkErr((errNum != CL_SUCCESS)? errNum : (total_platforms <= 0 ? -1 : CL_SUCCESS), "clGetPlatformIDs for init.");
-    printf("get number of Platforms: %d\n", total_platforms);
+    char *kernel_code_path = argv[1];
+    printf("kernel code path: %s\n", kernel_code_path);
 
-    platforms = (cl_platform_id*) malloc(sizeof(cl_platform_id) * total_platforms);
-    errNum = clGetPlatformIDs(total_platforms, platforms, NULL);
-    checkErr((errNum != CL_SUCCESS)? errNum : (total_platforms <= 0 ? -1 : CL_SUCCESS), "clGetPlatFormIDs for get data.");
-    
-    int platformId = -1;
-    for (platformId = 0; platformId < total_platforms; platformId++)
+    int platformId = 0; // only AMD GPU so always 1 platform
+    GetGetPlatforms(&platforms);
+
+    errNum = clGetDeviceIDs(platforms[platformId], CL_DEVICE_TYPE_GPU, 0, NULL, &total_devices);
+    if (errNum != CL_SUCCESS && errNum != CL_DEVICE_NOT_FOUND)
     {
-        errNum = clGetPlatformInfo(platforms[platformId], CL_PLATFORM_EXTENSIONS, 0, NULL, &ext_size);
-        checkErr(errNum, "clGetPlatformInfo for init.");
-
-        ext_data = (char*)malloc(ext_size);
-        errNum = clGetPlatformInfo(platforms[platformId], CL_PLATFORM_EXTENSIONS, ext_size, ext_data, NULL);
-        checkErr(errNum, "clGetPlatformInfo for get data.");
-        printf("Platform ID: %d\nsupports extensions: \n %s\n", platformId, ext_data); 
-
-        errNum = clGetDeviceIDs(platforms[platformId], CL_DEVICE_TYPE_GPU, 0, NULL, &total_devices);
-        if (errNum != CL_SUCCESS && errNum != CL_DEVICE_NOT_FOUND)
-        {
-            checkErr(errNum, "clGetDeviceIDs");
-        } 
-        else if (total_devices > 0)
-        {
-            devices = (cl_device_id *) malloc(sizeof(cl_device_id) * total_devices);
-            errNum = clGetDeviceIDs(platforms[platformId], CL_DEVICE_TYPE_GPU, total_devices, devices, NULL);
-            //checkErr(errNum, "clGetDeviceIDs");
-            printf("found number of GPU : %d\n", total_devices);
-            break;
-        }
-        else
-        {
-            printf("No CPU devices found.\n");
-            exit(-1);
-        }
+        checkErr(errNum, "clGetDeviceIDs");
+    } 
+    else if (total_devices > 0)
+    {
+        devices = (cl_device_id *) malloc(sizeof(cl_device_id) * total_devices);
+        errNum = clGetDeviceIDs(platforms[platformId], CL_DEVICE_TYPE_GPU, total_devices, devices, NULL);
+        //checkErr(errNum, "clGetDeviceIDs");
+        printf("found number of GPU : %d\n", total_devices);
     }
-        
+    else
+    {
+        printf("No CPU devices found.\n");
+        exit(-1);
+    }
+    
+    // show device info
+    /*
     for(int deviceId = 0; deviceId < total_devices; deviceId++)
     {
         printf("==================== GPU%d ====================\n", deviceId);
         show_device_information(devices[deviceId]);
         printf("==============================================\n");
     }
+    */
 
     // Create an OpenCL context
     cl_context_properties contextProperties[] =
@@ -172,13 +192,13 @@ int main(int argc, char** argv)
 
     // Load the kernel source code into the array source_str
     source_str = (char*)malloc(MAX_SOURCE_SIZE);
-    size_t source_size = load_opencl_program_code_file("./bin/Convolution.cl", source_str);
+    size_t source_size = load_opencl_kernel_code_file(kernel_code_path, source_str);
 
     // Create a program from the kernel source
     program = clCreateProgramWithSource(context, 1, 
             (const char **)&source_str, (const size_t *)&source_size, &errNum);
     checkErr(errNum, "clCreateProgramWithSource");
-    printf("create OpenCL program from %s ........... successful!!\n", "./bin/Convolution.cl");
+    printf("create OpenCL program from %s ........... successful!!\n", kernel_code_path);
 
     // Build the program
     errNum = clBuildProgram(program, total_devices, devices, NULL, NULL, NULL);
@@ -225,6 +245,8 @@ int main(int argc, char** argv)
         printf("create command queue in GPU%d\n", deviceId);
     }
 
+    start_time = clock(); /* mircosecond */
+
     cl_uint inputWidth = INPUT_SIGNAL_WIDTH;
     cl_uint maskWidth = MASK_SIGNAL_WIDTH;
     errNum = clSetKernelArg(kernel, 0, sizeof(cl_mem), &inputSignalBuffer);
@@ -235,14 +257,14 @@ int main(int argc, char** argv)
     checkErr(errNum, "clSetKernelArg");
     printf("send input arguments memory to GPU ........... successful!!\n");
 
-    const size_t globalWorkSize[1] = {OUTPUT_SIGNAL_WIDTH * OUTPUT_SIGNAL_HEIGHT};
+    const size_t globalWorkSize[1] = { OUTPUT_SIGNAL_WIDTH * OUTPUT_SIGNAL_HEIGHT };
     const size_t localWorkSize[1] = {1};
-
     errNum = clEnqueueNDRangeKernel(queues[0], kernel, 1, NULL, globalWorkSize, localWorkSize, 0, NULL, NULL);
     checkErr(errNum, "clEnqueueNDRangeKernel");
     printf("pass kernel code to GPU%d\n", 0);
 
     /*
+    // 分工給其他GPU運算
     for(int deviceId = 0; deviceId < total_devices; deviceId++)
     {
         errNum = clEnqueueNDRangeKernel(queues[deviceId], kernel, 1, NULL, globalWorkSize, localWorkSize, 0, NULL, NULL);
@@ -264,6 +286,7 @@ int main(int argc, char** argv)
     }
 
     /*
+    // 從各個GPU取回運算結果
     for(int deviceId = 0; deviceId < total_devices; deviceId++)
     {
         errNum = clEnqueueReadBuffer(queues[deviceId], outputSignalBuffer, CL_TRUE, 0, sizeof(cl_uint)* OUTPUT_SIGNAL_WIDTH * OUTPUT_SIGNAL_HEIGHT, outputSignal, 0, NULL, NULL);
@@ -278,10 +301,14 @@ int main(int argc, char** argv)
             printf("\n");
         }
     } */
+    end_time = clock();
+    
+    /* CLOCKS_PER_SEC is defined at time.h */
+    total_time = (float)(end_time - start_time)/CLOCKS_PER_SEC;
+    printf("porcess kernel program time : %f sec \n", total_time);
 
 release_memory:
     free(platforms);
-    free(ext_data);
     free(devices);
     free(source_str);
     free(queues);

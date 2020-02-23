@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/bin/Convolution",
-            "args": [],
+            "args": [ "./bin/Convolution.cl" ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

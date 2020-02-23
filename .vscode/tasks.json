@@ -6,7 +6,7 @@
         {
             "label": "build gcc binary",
             "type": "shell",
-            "command": "make"
+            "command": "make ver=debug"
         }
     ]
 }

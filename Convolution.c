@@ -170,14 +170,13 @@ int main(int argc, char** argv)
     }
     
     // show device info
-    /*
     for(int deviceId = 0; deviceId < total_devices; deviceId++)
     {
         printf("==================== GPU%d ====================\n", deviceId);
         show_device_information(devices[deviceId]);
         printf("==============================================\n");
     }
-    */
+    
 
     // Create an OpenCL context
     cl_context_properties contextProperties[] =
@@ -257,6 +256,12 @@ int main(int argc, char** argv)
     checkErr(errNum, "clSetKernelArg");
     printf("send input arguments memory to GPU ........... successful!!\n");
 
+    /*
+     * 黑虎鯊A8 RX470 參數，用clinfo來查詢
+     * Max work item dimensions 3
+     * Max work item sizes      1024x1024x1024
+     * Max work group size      256
+    */
     const size_t globalWorkSize[1] = { OUTPUT_SIGNAL_WIDTH * OUTPUT_SIGNAL_HEIGHT };
     const size_t localWorkSize[1] = {1};
     errNum = clEnqueueNDRangeKernel(queues[0], kernel, 1, NULL, globalWorkSize, localWorkSize, 0, NULL, NULL);
@@ -311,6 +316,15 @@ release_memory:
     free(platforms);
     free(devices);
     free(source_str);
-    free(queues);
+    //free(queues);
+
+    clReleaseProgram(program);
+    clReleaseMemObject(inputSignalBuffer);
+    clReleaseMemObject(maskBuffer);
+    clReleaseMemObject(outputSignalBuffer);
+    for(int deviceId = 0; deviceId < total_devices; deviceId++){
+        clReleaseCommandQueue(queues[deviceId]);
+    }
+    clReleaseContext(context);
     return 0;
 }
